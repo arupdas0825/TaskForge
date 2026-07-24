@@ -12,6 +12,10 @@ export function Header() {
     <header className="border-b border-border bg-card sticky top-0 z-10">
       <div className="flex items-center justify-between px-4 md:px-8 py-4">
         <div className="flex items-center gap-4 flex-1">
+          <div className="md:hidden flex items-center gap-2 pl-10">
+            <img src="/logo.png" alt="TaskForge" className="w-7 h-7 object-contain rounded-md" />
+            <span className="font-bold text-base">TaskForge</span>
+          </div>
           <div className="hidden md:block relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
             <input

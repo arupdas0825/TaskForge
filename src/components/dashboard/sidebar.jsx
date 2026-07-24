@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 'use client';
 
 import { useState } from 'react';
@@ -52,10 +53,8 @@ export function Sidebar() {
       <div className="hidden md:flex w-64 h-screen border-r border-border bg-card flex-col sticky top-0">
         {/* Logo */}
         <div className="p-6 border-b border-border">
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">TF</span>
-            </div>
+          <Link href="/dashboard" className="flex items-center gap-3">
+            <img src="/logo.png" alt="TaskForge Logo" className="w-8 h-8 object-contain rounded-lg shadow-sm" />
             <span className="font-bold text-lg tracking-tight">TaskForge</span>
           </Link>
         </div>
@@ -102,10 +101,8 @@ export function Sidebar() {
           <div className="fixed inset-0 bg-black/50" onClick={() => setIsOpen(false)} />
           <div className="relative w-64 max-w-xs bg-card h-full flex flex-col z-50 p-4 border-r border-border">
             <div className="p-4 border-b border-border mb-4">
-              <Link href="/dashboard" className="flex items-center gap-2" onClick={() => setIsOpen(false)}>
-                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                  <span className="text-primary-foreground font-bold text-sm">TF</span>
-                </div>
+              <Link href="/dashboard" className="flex items-center gap-3" onClick={() => setIsOpen(false)}>
+                <img src="/logo.png" alt="TaskForge Logo" className="w-8 h-8 object-contain rounded-lg shadow-sm" />
                 <span className="font-bold text-lg tracking-tight">TaskForge</span>
               </Link>
             </div>

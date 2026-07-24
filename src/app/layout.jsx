@@ -4,6 +4,9 @@ import './globals.css';
 export const metadata = {
   title: 'TaskForge - Intelligent Local Task Management',
   description: 'Self-contained, fast client-side task management platform',
+  icons: {
+    icon: '/logo.png',
+  },
 };
 
 export default function RootLayout({ children }) {

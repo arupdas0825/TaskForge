@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 'use client';
 
 import { useEffect } from 'react';
@@ -20,8 +21,10 @@ export default function Page() {
   }, [router]);
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background">
-      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary"></div>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-background to-muted p-4 space-y-4">
+      <img src="/logo.png" alt="TaskForge Logo" className="w-20 h-20 object-contain rounded-2xl shadow-lg animate-pulse" />
+      <h1 className="text-xl font-bold tracking-tight">TaskForge</h1>
+      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
     </div>
   );
 }

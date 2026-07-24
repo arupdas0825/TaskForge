@@ -1,10 +1,16 @@
 import { getAll, getById, putItem, deleteItem } from '@/lib/db/index';
 import { getCurrentUser } from '@/lib/auth';
-import { DEFAULT_USER_ID } from '@/lib/db/seed';
 
 export async function getTasks() {
+  const user = await getCurrentUser();
   const tasks = await getAll('tasks');
-  return tasks.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+  let filtered = tasks;
+  if (user?.id) {
+    filtered = tasks.filter((t) => !t.user_id || t.user_id === user.id || t.user_id === 'local-user-id');
+  }
+
+  return filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 }
 
 export async function getTaskById(id) {
@@ -15,7 +21,7 @@ export async function getTaskById(id) {
 
 export async function createTask(task) {
   const user = await getCurrentUser();
-  const userId = user?.id || DEFAULT_USER_ID;
+  const userId = user?.id || 'local-user-id';
   const now = new Date().toISOString();
 
   const id = crypto.randomUUID ? crypto.randomUUID() : `task-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
