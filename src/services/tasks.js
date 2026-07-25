@@ -1,34 +1,26 @@
-import { getAll, getById, putItem, deleteItem } from '@/lib/db/index';
-import { getCurrentUser } from '@/lib/auth';
+import {
+  listCollection,
+  getDocById,
+  createDoc,
+  updateDocById,
+  deleteDocById,
+} from '@/lib/firebase/firestore';
+import { getGoogleAccessToken } from '@/lib/auth';
+import { syncTaskToGoogle } from '@/lib/google-sync';
 
 export async function getTasks() {
-  const user = await getCurrentUser();
-  const tasks = await getAll('tasks');
-
-  let filtered = tasks;
-  if (user?.id) {
-    filtered = tasks.filter((t) => !t.user_id || t.user_id === user.id || t.user_id === 'local-user-id');
-  }
-
-  return filtered.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  const tasks = await listCollection('tasks');
+  return tasks.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 }
 
 export async function getTaskById(id) {
-  const task = await getById('tasks', id);
+  const task = await getDocById('tasks', id);
   if (!task) throw new Error(`Task with id ${id} not found`);
   return task;
 }
 
 export async function createTask(task) {
-  const user = await getCurrentUser();
-  const userId = user?.id || 'local-user-id';
-  const now = new Date().toISOString();
-
-  const id = crypto.randomUUID ? crypto.randomUUID() : `task-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-
-  const newTask = {
-    id,
-    user_id: userId,
+  const payload = {
     title: task.title || 'Untitled Task',
     description: task.description || '',
     priority: task.priority || 'medium',
@@ -53,29 +45,41 @@ export async function createTask(task) {
     dependencies: task.dependencies || [],
     is_favorite: Boolean(task.is_favorite),
     is_template: Boolean(task.is_template),
-    created_at: now,
-    updated_at: now,
+    reminder_sent: task.due_date ? false : true,
     ...task,
   };
 
-  await putItem('tasks', newTask);
-  return newTask;
+  const created = await createDoc('tasks', payload);
+
+  // Sync to Google Calendar & Google Tasks if due_date is specified and access token is present
+  if (created.due_date) {
+    const accessToken = getGoogleAccessToken();
+    if (accessToken) {
+      syncTaskToGoogle(created, accessToken);
+    }
+  }
+
+  return created;
 }
 
 export async function updateTask(id, updates) {
   const existingTask = await getTaskById(id);
-  const updatedTask = {
-    ...existingTask,
+
+  const payload = {
     ...updates,
-    updated_at: new Date().toISOString(),
   };
 
-  await putItem('tasks', updatedTask);
+  // If due_date is changed or added, reset reminder_sent flag
+  if (updates.due_date !== undefined && updates.due_date !== existingTask.due_date) {
+    payload.reminder_sent = false;
+  }
+
+  const updatedTask = await updateDocById('tasks', id, payload);
   return updatedTask;
 }
 
 export async function deleteTask(id) {
-  await deleteItem('tasks', id);
+  await deleteDocById('tasks', id);
 }
 
 export async function completeTask(id) {

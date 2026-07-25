@@ -1,52 +1,100 @@
-import { signInWithPopup, signOut as firebaseSignOut } from 'firebase/auth';
-import { auth, googleProvider } from './firebase/config';
-import { getById, putItem, getAll } from './db/index';
+import {
+  signInWithPopup,
+  signOut as firebaseSignOut,
+  GoogleAuthProvider,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile as updateFirebaseProfile,
+} from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { auth, db, googleProvider } from './firebase/config';
 
-export async function ensureProfileForFirebaseUser(firebaseUser) {
+let googleAccessToken = null;
+
+export function getGoogleAccessToken() {
+  if (googleAccessToken) return googleAccessToken;
+  if (typeof window !== 'undefined') {
+    return sessionStorage.getItem('google_access_token');
+  }
+  return null;
+}
+
+export function setGoogleAccessToken(token) {
+  googleAccessToken = token;
+  if (typeof window !== 'undefined' && token) {
+    sessionStorage.setItem('google_access_token', token);
+  }
+}
+
+export async function ensureProfileForFirebaseUser(firebaseUser, extra = {}) {
   if (!firebaseUser) return null;
 
   try {
-    const existing = await getById('profiles', firebaseUser.uid);
-    if (existing) {
-      // Update name/avatar if updated from Google
-      const updated = {
-        ...existing,
-        name: firebaseUser.displayName || existing.name || firebaseUser.email?.split('@')[0] || 'User',
-        avatar_url: firebaseUser.photoURL || existing.avatar_url || '',
-        updated_at: new Date().toISOString(),
-      };
-      await putItem('profiles', updated);
-      return updated;
-    }
+    const userRef = doc(db, 'users', firebaseUser.uid);
+    const existingSnap = await getDoc(userRef);
 
-    const newProfile = {
-      id: firebaseUser.uid,
-      uid: firebaseUser.uid,
+    const baseData = {
+      name: firebaseUser.displayName || extra.name || firebaseUser.email?.split('@')[0] || 'User',
       email: firebaseUser.email || '',
-      name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
       avatar_url: firebaseUser.photoURL || '',
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-      theme: 'dark',
-      language: 'en',
-      notifications_enabled: true,
-      email_notifications: false,
-      push_notifications: true,
-      created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      ...extra,
     };
 
-    await putItem('profiles', newProfile);
-    return newProfile;
+    if (!existingSnap.exists()) {
+      const initialProfile = {
+        ...baseData,
+        phone_number: null,
+        phone_verified: false,
+        whatsapp_opt_in: false,
+        email_reminders_enabled: true,
+        theme: 'dark',
+        created_at: new Date().toISOString(),
+      };
+      await setDoc(userRef, initialProfile, { merge: true });
+      return { id: firebaseUser.uid, uid: firebaseUser.uid, ...initialProfile };
+    }
+
+    await setDoc(userRef, baseData, { merge: true });
+    const updatedSnap = await getDoc(userRef);
+    return { id: firebaseUser.uid, uid: firebaseUser.uid, ...updatedSnap.data() };
   } catch (err) {
-    console.error('Error ensuring profile for user:', err);
+    console.error('Error ensuring profile in Firestore:', err);
     return {
       id: firebaseUser.uid,
       uid: firebaseUser.uid,
       email: firebaseUser.email || '',
-      name: firebaseUser.displayName || 'User',
+      name: firebaseUser.displayName || extra.name || 'User',
       avatar_url: firebaseUser.photoURL || '',
+      phone_verified: false,
+      whatsapp_opt_in: false,
+      email_reminders_enabled: true,
     };
   }
+}
+
+export async function signUpWithEmail({ fullName, email, password }) {
+  const cred = await createUserWithEmailAndPassword(auth, email, password);
+  await updateFirebaseProfile(cred.user, { displayName: fullName });
+  const profile = await ensureProfileForFirebaseUser(cred.user, { name: fullName });
+  return { user: profile, firebaseUser: cred.user };
+}
+
+export async function signInWithEmail({ email, password }) {
+  const cred = await signInWithEmailAndPassword(auth, email, password);
+  const profile = await ensureProfileForFirebaseUser(cred.user);
+  return { user: profile, firebaseUser: cred.user };
+}
+
+export async function signInWithGoogle() {
+  const result = await signInWithPopup(auth, googleProvider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  if (credential?.accessToken) {
+    setGoogleAccessToken(credential.accessToken);
+  }
+  const profile = await ensureProfileForFirebaseUser(result.user);
+  return { user: profile, firebaseUser: result.user, accessToken: credential?.accessToken };
 }
 
 export async function getCurrentUser() {
@@ -55,28 +103,30 @@ export async function getCurrentUser() {
   return ensureProfileForFirebaseUser(firebaseUser);
 }
 
-export async function signInWithGoogle() {
-  const result = await signInWithPopup(auth, googleProvider);
-  const profile = await ensureProfileForFirebaseUser(result.user);
-  return { user: profile, firebaseUser: result.user };
-}
-
 export async function signOutUser() {
+  googleAccessToken = null;
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem('google_access_token');
+  }
   await firebaseSignOut(auth);
 }
 
 export const signOut = signOutUser;
 
 export async function updateProfile(updates) {
-  const currentUser = await getCurrentUser();
-  if (!currentUser) throw new Error('No authenticated user');
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser) throw new Error('No authenticated user');
 
-  const updatedProfile = {
-    ...currentUser,
-    ...updates,
+  const userRef = doc(db, 'users', firebaseUser.uid);
+  // Prevent client from directly changing security-restricted fields
+  const { phone_verified, whatsapp_opt_in, ...safeUpdates } = updates;
+
+  const payload = {
+    ...safeUpdates,
     updated_at: new Date().toISOString(),
   };
 
-  await putItem('profiles', updatedProfile);
-  return updatedProfile;
+  await setDoc(userRef, payload, { merge: true });
+  const updatedSnap = await getDoc(userRef);
+  return { id: firebaseUser.uid, uid: firebaseUser.uid, ...updatedSnap.data() };
 }

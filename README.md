@@ -1,51 +1,71 @@
 # TaskForge
 
-A self-contained, 100% client-side task management platform built with Next.js 15, React 19, JavaScript (JSX), and browser-local IndexedDB persistence.
+A cloud-backed task management platform built with Next.js 15, React 19, Firebase Authentication (Google Sign-In), Cloud Firestore, Cloud Functions, Twilio (WhatsApp & OTP), SendGrid, and Google Calendar / Tasks integration.
 
-## Key Highlights
+## Key Architecture & Features
 
-- ⚡ **Zero Backend Required**: Runs completely client-side without any server dependencies, APIs, or environment variables.
-- 📦 **Browser-Local Persistence**: Uses browser IndexedDB (`taskforge-local`) to store tasks, projects, labels, and local user profiles.
-- 🎯 **Task Management**: Quick-add, priority flags, categories, statuses (To Do, In Progress, Completed, Archived), and inline completion toggles.
-- 📅 **Interactive Calendar**: View scheduled tasks visually across a monthly calendar.
-- 📊 **Local Analytics**: Dynamic completion trends, priority breakdown, project performance, and focus metrics computed locally.
-- 🎨 **Theme & Customization**: Support for Light, Dark, and System themes with toast notifications (Sonner).
+- 🔐 **Forced Google Sign-In**: Authenticate securely using Google OAuth via Firebase Auth.
+- ☁️ **Cloud Firestore Data Scoping**: All user tasks, projects, labels, and profile settings are stored securely in Firestore, scoped per user (`/users/{uid}/...`).
+- 📱 **WhatsApp & Email Reminders**: Scheduled reminders delivered automatically via Cloud Functions, Twilio (WhatsApp), and SendGrid.
+- 🔒 **Phone Number Verification**: Mandatory E.164 OTP verification via Twilio Verify before activating WhatsApp notifications.
+- ⛔ **WhatsApp Opt-Out Support**: Inbound webhook support handling "STOP" messages from users to instantly opt-out.
+- 📅 **Google Calendar & Tasks Sync**: Auto-sync scheduled tasks into the user's primary Google Calendar and Google Tasks.
+- 📊 **Productivity Analytics & Insights**: Real-time metrics, completion trends, and priority breakdowns.
+- 🎨 **Modern Dark/Light Themes**: Dynamic dark glassmorphism aesthetic built with Tailwind CSS and Framer Motion.
 
 ## Tech Stack
 
-- **Framework**: Next.js 15 (App Router)
-- **UI**: React 19 + Tailwind CSS + shadcn/ui components
-- **Language**: JavaScript (ES6+ / JSX)
-- **State & Data**: TanStack React Query + Zustand + IndexedDB
-- **Icons & Motion**: Lucide React + Framer Motion
+- **Frontend Framework**: Next.js 15 (App Router) + React 19
+- **Backend & Database**: Firebase Auth + Cloud Firestore + Cloud Functions (Node.js)
+- **Messaging & OTP**: Twilio Verify + Twilio WhatsApp API + SendGrid Mail
+- **Integrations**: Google Calendar API v3 + Google Tasks API v1
+- **State & UI**: TanStack React Query + Zustand + Tailwind CSS + Framer Motion + Sonner
+
+## Environment & Setup
+
+### Client Environment Variables (`.env.local`)
+
+Create a `.env.local` file in the root directory:
+
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project_id.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+```
+
+### Backend & Cloud Functions Secrets
+
+Deploy Cloud Functions with the following secrets configured in Firebase Console / Secret Manager:
+
+- `TWILIO_ACCOUNT_SID`: Twilio Account SID
+- `TWILIO_AUTH_TOKEN`: Twilio Auth Token
+- `TWILIO_VERIFY_SID`: Twilio Verify Service SID
+- `TWILIO_WHATSAPP_FROM`: WhatsApp sender phone number (e.g., `+14155238886`)
+- `SENDGRID_API_KEY`: SendGrid API Key
 
 ## Getting Started
 
-### Prerequisites
-- Node.js 18+ and npm
-
-### Quick Start
-
-1. Clone or open the project directory:
-```bash
-cd TaskForge-sh-main
-```
-
-2. Install dependencies:
+1. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Start the development server (zero environment variables required):
+2. Run the development server:
 ```bash
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+3. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Commands
+## Deploying Rules & Cloud Functions
 
-- `npm run dev` - Start local development server
-- `npm run build` - Build production bundle with Next.js
-- `npm start` - Start production server
-- `npm run lint` - Run ESLint checks
+```bash
+# Deploy Firestore security rules
+firebase deploy --only firestore:rules
+
+# Deploy Cloud Functions
+firebase deploy --only functions
+```

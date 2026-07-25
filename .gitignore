@@ -12,6 +12,8 @@ coverage/
 out/
 build/
 dist/
+public/sw.js
+public/sw.js.map
 
 # Misc
 .DS_Store

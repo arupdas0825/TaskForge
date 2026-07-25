@@ -4,7 +4,6 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { motion } from 'framer-motion';
 import {
   LayoutGrid,
   Calendar,
@@ -14,10 +13,13 @@ import {
   LogOut,
   Menu,
   X,
+  Download,
+  Share,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { signOut } from '@/lib/auth';
 import { useAuthStore } from '@/stores/auth-store';
+import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 
 const navItems = [
   { icon: LayoutGrid, label: 'Dashboard', href: '/dashboard' },
@@ -32,6 +34,7 @@ export function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { logout } = useAuthStore();
+  const { isInstallable, isIOS, promptInstall } = useInstallPrompt();
 
   const handleLogout = async () => {
     await signOut();
@@ -49,7 +52,7 @@ export function Sidebar() {
         {isOpen ? <X size={20} /> : <Menu size={20} />}
       </button>
 
-      {/* Sidebar */}
+      {/* Desktop Sidebar */}
       <div className="hidden md:flex w-64 h-screen border-r border-border bg-card flex-col sticky top-0">
         {/* Logo */}
         <div className="p-6 border-b border-border">
@@ -60,7 +63,7 @@ export function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1">
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
@@ -80,6 +83,31 @@ export function Sidebar() {
               </Link>
             );
           })}
+
+          {/* PWA Install Button for Chrome/Android/Desktop */}
+          {isInstallable && (
+            <div className="pt-2">
+              <Button
+                variant="outline"
+                onClick={promptInstall}
+                className="w-full justify-start gap-2 border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold"
+              >
+                <Download size={16} />
+                <span>Install App</span>
+              </Button>
+            </div>
+          )}
+
+          {/* PWA iOS Safari Instruction Banner */}
+          {isIOS && (
+            <div className="pt-2 p-3 rounded-lg border border-border bg-muted/40 text-[11px] text-muted-foreground space-y-1">
+              <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                <Share size={14} className="text-primary" />
+                <span>Install on iOS</span>
+              </div>
+              <p>Tap <strong className="text-foreground">Share</strong> in Safari → <strong className="text-foreground">Add to Home Screen</strong>.</p>
+            </div>
+          )}
         </nav>
 
         {/* Logout */}
@@ -106,7 +134,7 @@ export function Sidebar() {
                 <span className="font-bold text-lg tracking-tight">TaskForge</span>
               </Link>
             </div>
-            <nav className="flex-1 space-y-1">
+            <nav className="flex-1 space-y-1 overflow-y-auto">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
@@ -126,6 +154,32 @@ export function Sidebar() {
                   </Link>
                 );
               })}
+
+              {isInstallable && (
+                <div className="pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      promptInstall();
+                      setIsOpen(false);
+                    }}
+                    className="w-full justify-start gap-2 border-primary/40 bg-primary/10 text-primary text-xs font-semibold"
+                  >
+                    <Download size={16} />
+                    <span>Install App</span>
+                  </Button>
+                </div>
+              )}
+
+              {isIOS && (
+                <div className="pt-2 p-3 rounded-lg border border-border bg-muted/40 text-[11px] text-muted-foreground space-y-1">
+                  <div className="flex items-center gap-1.5 font-semibold text-foreground">
+                    <Share size={14} className="text-primary" />
+                    <span>Install on iOS</span>
+                  </div>
+                  <p>Tap <strong className="text-foreground">Share</strong> in Safari → <strong className="text-foreground">Add to Home Screen</strong>.</p>
+                </div>
+              )}
             </nav>
             <div className="pt-4 border-t border-border">
               <Button

@@ -1,7 +1,7 @@
-import { getAll } from '@/lib/db/index';
+import { listCollection } from '@/lib/firebase/firestore';
 
 export async function getProductivityStats() {
-  const allTasks = await getAll('tasks');
+  const allTasks = await listCollection('tasks');
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -63,7 +63,7 @@ export async function getProductivityStats() {
 }
 
 export async function getTaskMetrics() {
-  const allTasks = await getAll('tasks');
+  const allTasks = await listCollection('tasks');
 
   if (!allTasks || allTasks.length === 0) {
     return {
@@ -105,7 +105,7 @@ export async function getTaskMetrics() {
 }
 
 export async function getTaskCompletionTrend(days = 30) {
-  const allTasks = await getAll('tasks');
+  const allTasks = await listCollection('tasks');
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
 
   const completedTasks = allTasks.filter(
@@ -125,7 +125,7 @@ export async function getTaskCompletionTrend(days = 30) {
 }
 
 export async function getCategoryAnalysis() {
-  const allTasks = await getAll('tasks');
+  const allTasks = await listCollection('tasks');
 
   const byLabel = {};
   const byPriority = {};
@@ -145,8 +145,8 @@ export async function getCategoryAnalysis() {
 }
 
 export async function getProjectAnalysis() {
-  const projects = await getAll('projects');
-  const tasks = await getAll('tasks');
+  const projects = await listCollection('projects');
+  const tasks = await listCollection('tasks');
 
   if (!projects) return [];
 

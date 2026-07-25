@@ -7,6 +7,8 @@ import { useAuthStore } from '@/stores/auth-store';
 import { updateProfile } from '@/lib/auth';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '@/lib/firebase/config';
 
 export default function SettingsPage() {
   const { user, setUser } = useAuthStore();
@@ -14,16 +16,24 @@ export default function SettingsPage() {
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [notifications, setNotifications] = useState(true);
-  const [emailNotifications, setEmailNotifications] = useState(false);
+  const [emailReminders, setEmailReminders] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Phone Verification States
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [otpSent, setOtpSent] = useState(false);
 
   useEffect(() => {
     if (user) {
       setName(user.name || '');
       setEmail(user.email || '');
-      setNotifications(user.notifications_enabled !== false);
-      setEmailNotifications(Boolean(user.email_notifications));
+      setEmailReminders(user.email_reminders_enabled !== false);
+      if (user.phone_number) {
+        setPhoneNumber(user.phone_number);
+      }
     }
   }, [user]);
 
@@ -35,8 +45,7 @@ export default function SettingsPage() {
     try {
       const updated = await updateProfile({
         name: name.trim(),
-        notifications_enabled: notifications,
-        email_notifications: emailNotifications,
+        email_reminders_enabled: emailReminders,
         theme: theme || 'dark',
       });
       setUser(updated);
@@ -48,6 +57,50 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSendOtp = async () => {
+    if (!phoneNumber || !phoneNumber.startsWith('+')) {
+      toast.error('Please enter a valid phone number in E.164 format (e.g. +8801700000000)');
+      return;
+    }
+
+    setIsSendingOtp(true);
+    try {
+      const sendOtpFn = httpsCallable(functions, 'sendPhoneOtp');
+      await sendOtpFn({ phone: phoneNumber });
+      setOtpSent(true);
+      toast.success(`Verification code sent to ${phoneNumber}`);
+    } catch (err) {
+      console.error('Send OTP Error:', err);
+      toast.error(err.message || 'Failed to send OTP code');
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    if (!otpCode || otpCode.trim().length < 4) {
+      toast.error('Please enter the 6-digit verification code');
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    try {
+      const verifyOtpFn = httpsCallable(functions, 'verifyPhoneOtp');
+      await verifyOtpFn({ phone: phoneNumber, code: otpCode.trim() });
+      toast.success('Phone number verified successfully! WhatsApp reminders activated.');
+      setOtpSent(false);
+      setOtpCode('');
+      // Reload profile to pick up updated phone_verified & whatsapp_opt_in
+      const updated = await updateProfile({});
+      setUser(updated);
+    } catch (err) {
+      console.error('Verify OTP Error:', err);
+      toast.error(err.message || 'Verification failed. Incorrect or expired code.');
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
   const handleThemeChange = (newTheme) => {
     setTheme(newTheme);
     if (user) {
@@ -56,18 +109,31 @@ export default function SettingsPage() {
     toast.success(`Theme updated to ${newTheme}`);
   };
 
+  // WhatsApp status indicator text
+  const getWhatsappStatus = () => {
+    if (!user?.phone_verified) {
+      return { text: 'Not verified', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+    }
+    if (user?.whatsapp_opt_in) {
+      return { text: 'Active (Receiving Reminders)', color: 'text-green-400 bg-green-500/10 border-green-500/20' };
+    }
+    return { text: 'Opted out (Text STOP was received)', color: 'text-red-400 bg-red-500/10 border-red-500/20' };
+  };
+
+  const whatsappStatus = getWhatsappStatus();
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-1">Manage your local profile preferences</p>
+        <p className="text-muted-foreground mt-1">Manage your account, preferences, and automated reminder integrations</p>
       </div>
 
       {/* Account Section */}
       <Card>
         <CardHeader>
           <CardTitle>Profile Details</CardTitle>
-          <CardDescription>Your local profile details saved on this browser</CardDescription>
+          <CardDescription>Your account profile information linked to Google Sign-In</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSaveProfile} className="space-y-4">
@@ -82,19 +148,102 @@ export default function SettingsPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Email</label>
+              <label className="text-sm font-medium">Google Account Email</label>
               <input
                 type="email"
                 value={email}
                 disabled
                 className="w-full px-3 py-2 border border-input rounded-lg bg-muted text-muted-foreground text-sm cursor-not-allowed"
               />
-              <p className="text-xs text-muted-foreground">Local profile email identifier</p>
             </div>
             <Button type="submit" disabled={isSaving}>
               {isSaving ? 'Saving...' : 'Save Changes'}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* WhatsApp Reminders & Phone OTP Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>WhatsApp Reminders & Verification</CardTitle>
+          <CardDescription>Verify your phone number via Twilio OTP to receive real-time task due reminders on WhatsApp</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Status Indicator */}
+          <div className="flex items-center justify-between p-3 rounded-xl border text-xs font-medium bg-muted/30">
+            <span>WhatsApp Reminders Status:</span>
+            <span className={`px-2.5 py-1 rounded-full border ${whatsappStatus.color}`}>
+              {whatsappStatus.text}
+            </span>
+          </div>
+
+          {/* Phone Input & Send OTP */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Phone Number (E.164 Format)</label>
+            <div className="flex gap-2">
+              <input
+                type="tel"
+                placeholder="+14155552671"
+                value={phoneNumber}
+                onChange={(e) => setPhoneNumber(e.target.value)}
+                className="flex-1 px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <Button type="button" onClick={handleSendOtp} disabled={isSendingOtp}>
+                {isSendingOtp ? 'Sending Code...' : otpSent ? 'Resend Code' : 'Send Code'}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Must include country code (e.g. +1, +44, +880). You can reply <strong>STOP</strong> to any WhatsApp message to opt out anytime.
+            </p>
+          </div>
+
+          {/* OTP Input & Verify */}
+          {otpSent && (
+            <div className="space-y-2 pt-2 border-t border-border">
+              <label className="text-sm font-medium">Enter 6-Digit OTP Code</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="123456"
+                  maxLength={6}
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  className="w-40 px-3 py-2 border border-input rounded-lg bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary tracking-widest text-center"
+                />
+                <Button type="button" onClick={handleVerifyOtp} disabled={isVerifyingOtp} variant="default">
+                  {isVerifyingOtp ? 'Verifying...' : 'Verify OTP'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Email Reminders Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Email Reminders</CardTitle>
+          <CardDescription>Configure task due notification delivery to your Google email</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <label className="text-sm font-medium">Send Task Due Email Reminders</label>
+              <p className="text-xs text-muted-foreground mt-0.5">Receive automated email alerts 15 minutes before tasks are due</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={emailReminders}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setEmailReminders(checked);
+                updateProfile({ email_reminders_enabled: checked }).then((updated) => setUser(updated));
+                toast.success(`Email reminders ${checked ? 'enabled' : 'disabled'}`);
+              }}
+              className="w-4 h-4 rounded accent-primary cursor-pointer"
+            />
+          </div>
         </CardContent>
       </Card>
 
@@ -120,46 +269,6 @@ export default function SettingsPage() {
                 </Button>
               ))}
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Notifications Section */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Notifications</CardTitle>
-          <CardDescription>Manage local notification preferences</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium">In-App Toast Notifications</label>
-              <p className="text-xs text-muted-foreground mt-0.5">Show success/error toast alerts</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={notifications}
-              onChange={(e) => {
-                setNotifications(e.target.checked);
-                updateProfile({ notifications_enabled: e.target.checked }).then((updated) => setUser(updated));
-              }}
-              className="w-4 h-4 rounded accent-primary cursor-pointer"
-            />
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <label className="text-sm font-medium">Email Summary Preference</label>
-              <p className="text-xs text-muted-foreground mt-0.5">Saved locally for user preferences</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={emailNotifications}
-              onChange={(e) => {
-                setEmailNotifications(e.target.checked);
-                updateProfile({ email_notifications: e.target.checked }).then((updated) => setUser(updated));
-              }}
-              className="w-4 h-4 rounded accent-primary cursor-pointer"
-            />
           </div>
         </CardContent>
       </Card>
