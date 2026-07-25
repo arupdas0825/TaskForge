@@ -9,12 +9,14 @@ import { TaskList } from '@/components/tasks/task-list';
 import { TaskFilters } from '@/components/tasks/task-filters';
 import { Plus } from 'lucide-react';
 import { useTasks } from '@/hooks/useTasks';
+import { GuestVerifyModal } from '@/components/dashboard/guest-verify-modal';
 
 export default function TasksPage() {
   const { tasks = [], isLoading, createTask, isCreating } = useTasks();
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterPriority, setFilterPriority] = useState('all');
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
 
   // New task state
   const [title, setTitle] = useState('');
@@ -28,23 +30,42 @@ export default function TasksPage() {
     return true;
   });
 
-  const handleCreateTask = async (e) => {
-    e.preventDefault();
+  const submitTask = async () => {
     if (!title.trim()) return;
 
-    await createTask({
-      title: title.trim(),
-      description: description.trim(),
-      priority,
-      status: 'todo',
-      due_date: dueDate ? new Date(dueDate).toISOString() : null,
-    });
+    try {
+      await createTask({
+        title: title.trim(),
+        description: description.trim(),
+        priority,
+        status: 'todo',
+        due_date: dueDate ? new Date(dueDate).toISOString() : null,
+      });
 
-    setTitle('');
-    setDescription('');
-    setPriority('medium');
-    setDueDate('');
-    setIsCreateOpen(false);
+      setTitle('');
+      setDescription('');
+      setPriority('medium');
+      setDueDate('');
+      setIsCreateOpen(false);
+    } catch (err) {
+      if (err.code === 'VERIFICATION_REQUIRED') {
+        setIsCreateOpen(false);
+        setShowVerifyModal(true);
+        return;
+      }
+      console.error('Failed to create task:', err);
+    }
+  };
+
+  const handleCreateTask = async (e) => {
+    e.preventDefault();
+    await submitTask();
+  };
+
+  const handleVerified = async () => {
+    if (title.trim()) {
+      await submitTask();
+    }
   };
 
   return (
@@ -100,7 +121,7 @@ export default function TasksPage() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Create New Task</DialogTitle>
-            <DialogDescription>Add a new task to your local workspace.</DialogDescription>
+            <DialogDescription>Add a new task to your workspace.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleCreateTask} className="space-y-4 py-2">
             <div className="space-y-2">
@@ -159,6 +180,13 @@ export default function TasksPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Guest Verification Modal */}
+      <GuestVerifyModal
+        open={showVerifyModal}
+        onClose={() => setShowVerifyModal(false)}
+        onVerified={handleVerified}
+      />
     </motion.div>
   );
 }

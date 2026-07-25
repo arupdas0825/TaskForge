@@ -4,8 +4,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { httpsCallable } from 'firebase/functions';
-import { signInWithCustomToken } from 'firebase/auth';
-import { auth, functions } from '@/lib/firebase/config';
+import { signInWithCustomToken, signInAnonymously } from 'firebase/auth';
+import { auth, functions, db } from '@/lib/firebase/config';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { ensureProfileForFirebaseUser } from '@/lib/auth';
 import { useAuthStore } from '@/stores/auth-store';
@@ -17,6 +18,7 @@ export default function AuthPage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGuestSubmitting, setIsGuestSubmitting] = useState(false);
   const router = useRouter();
   const { setUser } = useAuthStore();
 
@@ -75,6 +77,44 @@ export default function AuthPage() {
     }
   };
 
+  const handleContinueAsGuest = async (e) => {
+    e.preventDefault();
+    setError('');
+    setIsGuestSubmitting(true);
+
+    try {
+      const cred = await signInAnonymously(auth);
+      const guestName = fullName.trim() || 'Guest';
+
+      const guestProfile = {
+        name: guestName,
+        email: null,
+        isGuest: true,
+        phone_number: null,
+        phone_verified: false,
+        whatsapp_opt_in: false,
+        email_reminders_enabled: false,
+        theme: 'dark',
+        created_at: serverTimestamp(),
+      };
+
+      await setDoc(doc(db, 'users', cred.user.uid), guestProfile, { merge: true });
+
+      setUser({
+        id: cred.user.uid,
+        uid: cred.user.uid,
+        ...guestProfile,
+      });
+
+      router.push('/dashboard');
+    } catch (err) {
+      console.error('Guest Sign-In Error:', err);
+      setError(err.message || 'Failed to sign in as guest.');
+    } finally {
+      setIsGuestSubmitting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-[#121212] relative overflow-hidden w-full">
       {/* Ambient background glow */}
@@ -90,7 +130,7 @@ export default function AuthPage() {
           </h1>
           <p className="text-xs text-gray-400">
             {step === 'request'
-              ? "No password needed — we'll email you a one-time sign-in code."
+              ? "No password needed — enter your email for a code or continue as guest."
               : `We sent a 6-digit code to ${email}`}
           </p>
         </div>
@@ -102,26 +142,47 @@ export default function AuthPage() {
         )}
 
         {step === 'request' ? (
-          <form onSubmit={handleSendCode} className="space-y-3">
-            <input
-              type="text"
-              placeholder="Full name (optional)"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <input
-              type="email"
-              required
-              placeholder="Email address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-            />
-            <Button type="submit" className="w-full rounded-xl py-2.5" disabled={isSubmitting}>
-              {isSubmitting ? 'Sending code...' : 'Send code'}
+          <div className="space-y-4">
+            <form onSubmit={handleSendCode} className="space-y-3">
+              <input
+                type="text"
+                placeholder="Full name (optional)"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <input
+                type="email"
+                required
+                placeholder="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <Button type="submit" className="w-full rounded-xl py-2.5" disabled={isSubmitting || isGuestSubmitting}>
+                {isSubmitting ? 'Sending code...' : 'Send code'}
+              </Button>
+            </form>
+
+            <div className="relative flex items-center justify-center my-2">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-white/10" />
+              </div>
+              <span className="relative bg-[#1a1a1a] px-3 text-[11px] text-gray-400 uppercase tracking-wider">
+                or
+              </span>
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleContinueAsGuest}
+              className="w-full rounded-xl py-2.5 border-white/20 bg-white/5 text-white hover:bg-white/10"
+              disabled={isSubmitting || isGuestSubmitting}
+            >
+              {isGuestSubmitting ? 'Signing in as guest...' : 'Continue as Guest'}
             </Button>
-          </form>
+          </div>
         ) : (
           <form onSubmit={handleVerifyCode} className="space-y-3">
             <input

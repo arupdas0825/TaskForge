@@ -28,13 +28,13 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId);
 
-      // Prevent client from setting/modifying phone_verified or whatsapp_opt_in
+      // Prevent client from setting/modifying restricted fields: phone_verified, whatsapp_opt_in, isGuest
       allow create: if isOwner(userId)
-        && (!request.resource.data.keys().hasAny(['phone_verified', 'whatsapp_opt_in'])
+        && (!request.resource.data.keys().hasAny(['phone_verified', 'whatsapp_opt_in', 'isGuest'])
             || (request.resource.data.phone_verified == false && request.resource.data.whatsapp_opt_in == false));
 
       allow update: if isOwner(userId)
-        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['phone_verified', 'whatsapp_opt_in']));
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['phone_verified', 'whatsapp_opt_in', 'isGuest']));
 
       allow delete: if isOwner(userId);
 

@@ -4,26 +4,41 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
 import { useTasks } from '@/hooks/useTasks';
+import { GuestVerifyModal } from '@/components/dashboard/guest-verify-modal';
 
 export function TaskQuickAdd() {
   const [input, setInput] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const [showVerifyModal, setShowVerifyModal] = useState(false);
   const { createTask, isCreating } = useTasks();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-
+  const handleCreate = async (titleToCreate) => {
     try {
       await createTask({
-        title: input.trim(),
+        title: titleToCreate,
         status: 'todo',
         priority: 'medium',
       });
       setInput('');
       setIsOpen(false);
     } catch (err) {
+      if (err.code === 'VERIFICATION_REQUIRED') {
+        setShowVerifyModal(true);
+        return;
+      }
       console.error('Failed to create quick task:', err);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    await handleCreate(input.trim());
+  };
+
+  const handleVerified = async () => {
+    if (input.trim()) {
+      await handleCreate(input.trim());
     }
   };
 
@@ -67,6 +82,12 @@ export function TaskQuickAdd() {
           </div>
         </form>
       )}
+
+      <GuestVerifyModal
+        open={showVerifyModal}
+        onClose={() => setShowVerifyModal(false)}
+        onVerified={handleVerified}
+      />
     </div>
   );
 }

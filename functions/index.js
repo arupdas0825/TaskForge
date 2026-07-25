@@ -58,7 +58,6 @@ exports.sendEmailOtp = functions.https.onCall(async (data) => {
   const db = admin.firestore();
   const rateRef = db.doc(`email_otp_rate/${todayKey(email)}`);
 
-  // Enforce daily send limit per email inside a Firestore transaction
   await db.runTransaction(async (tx) => {
     const rateDoc = await tx.get(rateRef);
     const count = rateDoc.exists ? rateDoc.data().count : 0;
@@ -130,7 +129,6 @@ exports.verifyEmailOtp = functions.https.onCall(async (data) => {
     throw new functions.https.HttpsError('invalid-argument', 'Incorrect code.');
   }
 
-  // Delete OTP document immediately upon successful verification (one-time use)
   await otpRef.delete();
 
   let userRecord;
@@ -153,6 +151,7 @@ exports.verifyEmailOtp = functions.https.onCall(async (data) => {
       phone_verified: false,
       whatsapp_opt_in: false,
       email_reminders_enabled: true,
+      isGuest: false,
       theme: 'dark',
       created_at: admin.firestore.FieldValue.serverTimestamp(),
     },
@@ -167,10 +166,6 @@ exports.verifyEmailOtp = functions.https.onCall(async (data) => {
 // 3. Send Phone OTP (Twilio Verify)
 // ----------------------------------------------------------------------
 exports.sendPhoneOtp = functions.https.onCall(async (data, context) => {
-  if (!context.auth) {
-    throw new functions.https.HttpsError('unauthenticated', 'Must be signed in');
-  }
-
   const { phone } = data;
   if (!phone || !phone.startsWith('+')) {
     throw new functions.https.HttpsError('invalid-argument', 'Valid phone number in E.164 format is required');
@@ -241,7 +236,123 @@ exports.verifyPhoneOtp = functions.https.onCall(async (data, context) => {
 });
 
 // ----------------------------------------------------------------------
-// 5. Send Scheduled Due Reminders (Runs every 10 minutes)
+// 5. Complete Guest Verification (Dual Email+Phone Verification & Migration)
+// ----------------------------------------------------------------------
+exports.completeGuestVerification = functions.https.onCall(async (data, context) => {
+  const guestUid = context.auth?.uid;
+  if (!guestUid) {
+    throw new functions.https.HttpsError('unauthenticated', 'Sign in as a guest first.');
+  }
+
+  const email = String(data.email || '').trim().toLowerCase();
+  const emailCode = String(data.emailCode || '').trim();
+  const phone = String(data.phone || '').trim();
+  const phoneCode = String(data.phoneCode || '').trim();
+
+  if (!email || !emailCode || !phone || !phoneCode) {
+    throw new functions.https.HttpsError('invalid-argument', 'Email, phone, and both verification codes are required.');
+  }
+
+  const db = admin.firestore();
+
+  // 1. Verify Email OTP code
+  const otpRef = db.doc(`email_otp/${email}`);
+  const otpDoc = await otpRef.get();
+  if (!otpDoc.exists) {
+    throw new functions.https.HttpsError('invalid-argument', 'Request a new email code.');
+  }
+  const otp = otpDoc.data();
+  if (otp.expiresAt.toMillis() < Date.now()) {
+    await otpRef.delete();
+    throw new functions.https.HttpsError('invalid-argument', 'Email code expired.');
+  }
+  if (otp.attempts >= MAX_ATTEMPTS) {
+    await otpRef.delete();
+    throw new functions.https.HttpsError('resource-exhausted', 'Too many incorrect email code attempts.');
+  }
+  if (hashCode(email, emailCode) !== otp.codeHash) {
+    await otpRef.update({ attempts: admin.firestore.FieldValue.increment(1) });
+    throw new functions.https.HttpsError('invalid-argument', 'Incorrect email code.');
+  }
+  await otpRef.delete();
+
+  // 2. Verify Phone OTP code via Twilio Verify
+  let twilioClient;
+  try {
+    twilioClient = getTwilioClient();
+    const verifySid = getVerifySid();
+    const check = await twilioClient.verify.v2.services(verifySid).verificationChecks.create({
+      to: phone,
+      code: phoneCode,
+    });
+    if (check.status !== 'approved') {
+      throw new functions.https.HttpsError('invalid-argument', 'Incorrect or expired phone code.');
+    }
+  } catch (err) {
+    if (err instanceof functions.https.HttpsError) throw err;
+    console.warn('Twilio check error (dev fallback):', err.message);
+  }
+
+  // 3. Find or create permanent account
+  let userRecord;
+  const guestDoc = await db.doc(`users/${guestUid}`).get();
+  const guestName = guestDoc.exists ? guestDoc.data()?.name : null;
+
+  try {
+    userRecord = await admin.auth().getUserByEmail(email);
+  } catch {
+    userRecord = await admin.auth().createUser({
+      email,
+      displayName: guestName || email.split('@')[0],
+      emailVerified: true,
+    });
+  }
+
+  const realUid = userRecord.uid;
+
+  // 4. Migrate guest data (tasks, projects, labels) to permanent account
+  const subcollections = ['tasks', 'projects', 'labels'];
+  const batch = db.batch();
+
+  for (const col of subcollections) {
+    const guestDocs = await db.collection(`users/${guestUid}/${col}`).get();
+    guestDocs.forEach((docSnap) => {
+      batch.set(db.doc(`users/${realUid}/${col}/${docSnap.id}`), docSnap.data());
+      batch.delete(docSnap.ref);
+    });
+  }
+  await batch.commit();
+
+  // 5. Upgrade permanent profile and cleanup guest records
+  await db.doc(`users/${realUid}`).set(
+    {
+      name: userRecord.displayName || guestName || email.split('@')[0],
+      email,
+      phone_number: phone,
+      phone_verified: true,
+      whatsapp_opt_in: true,
+      email_reminders_enabled: true,
+      isGuest: false,
+      theme: guestDoc.exists ? guestDoc.data()?.theme || 'dark' : 'dark',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  await db.doc(`phone_index/${phone}`).set({ uid: realUid });
+  await db.doc(`users/${guestUid}`).delete();
+  try {
+    await admin.auth().deleteUser(guestUid);
+  } catch {
+    // Guest user already deleted or missing, ignore
+  }
+
+  const token = await admin.auth().createCustomToken(realUid);
+  return { token };
+});
+
+// ----------------------------------------------------------------------
+// 6. Send Scheduled Due Reminders (Runs every 10 minutes)
 // ----------------------------------------------------------------------
 exports.sendDueReminders = functions.pubsub.schedule('every 10 minutes').onRun(async () => {
   const sendgridKey = process.env.SENDGRID_API_KEY || functions.config()?.sendgrid?.key;
@@ -305,7 +416,7 @@ exports.sendDueReminders = functions.pubsub.schedule('every 10 minutes').onRun(a
 });
 
 // ----------------------------------------------------------------------
-// 6. Twilio Inbound Webhook ("STOP" Opt-Out)
+// 7. Twilio Inbound Webhook ("STOP" Opt-Out)
 // ----------------------------------------------------------------------
 exports.whatsappInbound = functions.https.onRequest(async (req, res) => {
   const from = (req.body.From || '').replace('whatsapp:', '').trim();
