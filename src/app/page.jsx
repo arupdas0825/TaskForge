@@ -14,10 +14,10 @@ export default function Page() {
         if (user) {
           router.replace('/dashboard');
         } else {
-          router.replace('/auth/login');
+          router.replace('/auth');
         }
       } catch (e) {
-        router.replace('/auth/login');
+        router.replace('/auth');
       }
     }
     checkAuth();

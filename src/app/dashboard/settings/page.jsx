@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth-store';
-import { updateProfile } from '@/lib/auth';
+import { updateProfile, setGoogleAccessToken } from '@/lib/auth';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '@/lib/firebase/config';
+import { functions, auth, googleProvider } from '@/lib/firebase/config';
+import { linkWithPopup, GoogleAuthProvider } from 'firebase/auth';
 
 export default function SettingsPage() {
   const { user, setUser } = useAuthStore();
@@ -18,6 +19,7 @@ export default function SettingsPage() {
   const [email, setEmail] = useState('');
   const [emailReminders, setEmailReminders] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isConnectingCalendar, setIsConnectingCalendar] = useState(false);
 
   // Phone Verification States
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -57,6 +59,33 @@ export default function SettingsPage() {
     }
   };
 
+  const handleConnectGoogleCalendar = async () => {
+    setIsConnectingCalendar(true);
+    try {
+      if (!auth.currentUser) {
+        toast.error('You must be signed in to connect Google Calendar');
+        return;
+      }
+      const result = await linkWithPopup(auth.currentUser, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setGoogleAccessToken(credential.accessToken);
+      }
+      const updated = await updateProfile({ calendar_connected: true });
+      setUser(updated);
+      toast.success('Google Calendar & Tasks connected successfully!');
+    } catch (err) {
+      console.error('Google Calendar Connect Error:', err);
+      if (err.code === 'auth/credential-already-in-use') {
+        toast.error('This Google account is already linked to another user.');
+      } else if (err.code !== 'auth/popup-closed-by-user') {
+        toast.error(err.message || 'Failed to connect Google Calendar.');
+      }
+    } finally {
+      setIsConnectingCalendar(false);
+    }
+  };
+
   const handleSendOtp = async () => {
     if (!phoneNumber || !phoneNumber.startsWith('+')) {
       toast.error('Please enter a valid phone number in E.164 format (e.g. +8801700000000)');
@@ -90,7 +119,6 @@ export default function SettingsPage() {
       toast.success('Phone number verified successfully! WhatsApp reminders activated.');
       setOtpSent(false);
       setOtpCode('');
-      // Reload profile to pick up updated phone_verified & whatsapp_opt_in
       const updated = await updateProfile({});
       setUser(updated);
     } catch (err) {
@@ -109,7 +137,6 @@ export default function SettingsPage() {
     toast.success(`Theme updated to ${newTheme}`);
   };
 
-  // WhatsApp status indicator text
   const getWhatsappStatus = () => {
     if (!user?.phone_verified) {
       return { text: 'Not verified', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
@@ -133,7 +160,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Profile Details</CardTitle>
-          <CardDescription>Your account profile information linked to Google Sign-In</CardDescription>
+          <CardDescription>Your account profile information saved securely in Firestore</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSaveProfile} className="space-y-4">
@@ -148,7 +175,7 @@ export default function SettingsPage() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Google Account Email</label>
+              <label className="text-sm font-medium">Account Email</label>
               <input
                 type="email"
                 value={email}
@@ -163,6 +190,35 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
+      {/* Google Calendar & Tasks Integration */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Google Calendar & Tasks Sync</CardTitle>
+          <CardDescription>Connect your Google account to automatically push scheduled tasks to Google Calendar and Google Tasks</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium">Status</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {user?.calendar_connected
+                  ? 'Connected — task due dates auto-sync with Google Calendar & Tasks'
+                  : 'Not connected — click button to grant permission'}
+              </p>
+            </div>
+            {user?.calendar_connected ? (
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-500/10 text-green-400 border border-green-500/20">
+                Connected ✅
+              </span>
+            ) : (
+              <Button type="button" onClick={handleConnectGoogleCalendar} disabled={isConnectingCalendar}>
+                {isConnectingCalendar ? 'Connecting...' : 'Connect Google Calendar'}
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* WhatsApp Reminders & Phone OTP Section */}
       <Card>
         <CardHeader>
@@ -170,7 +226,6 @@ export default function SettingsPage() {
           <CardDescription>Verify your phone number via Twilio OTP to receive real-time task due reminders on WhatsApp</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Status Indicator */}
           <div className="flex items-center justify-between p-3 rounded-xl border text-xs font-medium bg-muted/30">
             <span>WhatsApp Reminders Status:</span>
             <span className={`px-2.5 py-1 rounded-full border ${whatsappStatus.color}`}>
@@ -178,7 +233,6 @@ export default function SettingsPage() {
             </span>
           </div>
 
-          {/* Phone Input & Send OTP */}
           <div className="space-y-2">
             <label className="text-sm font-medium">Phone Number (E.164 Format)</label>
             <div className="flex gap-2">
@@ -194,11 +248,10 @@ export default function SettingsPage() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Must include country code (e.g. +1, +44, +880). You can reply <strong>STOP</strong> to any WhatsApp message to opt out anytime.
+              Must include country code (e.g. +1, +44, +880). Reply <strong>STOP</strong> to any WhatsApp message to opt out anytime.
             </p>
           </div>
 
-          {/* OTP Input & Verify */}
           {otpSent && (
             <div className="space-y-2 pt-2 border-t border-border">
               <label className="text-sm font-medium">Enter 6-Digit OTP Code</label>
@@ -224,7 +277,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Email Reminders</CardTitle>
-          <CardDescription>Configure task due notification delivery to your Google email</CardDescription>
+          <CardDescription>Configure task due notification delivery to your account email</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">

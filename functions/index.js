@@ -2,10 +2,11 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const twilio = require('twilio');
 const sgMail = require('@sendgrid/mail');
+const crypto = require('crypto');
 
 admin.initializeApp();
 
-// Configuration helper
+// Configuration helpers
 const getTwilioClient = () => {
   const sid = process.env.TWILIO_ACCOUNT_SID || functions.config()?.twilio?.sid;
   const token = process.env.TWILIO_AUTH_TOKEN || functions.config()?.twilio?.auth;
@@ -21,8 +22,149 @@ const getWhatsappFrom = () => {
   return process.env.TWILIO_WHATSAPP_FROM || functions.config()?.twilio?.whatsapp_from;
 };
 
+const getPepper = () => {
+  return process.env.OTP_PEPPER || functions.config()?.otp?.pepper || 'taskforge-secure-pepper-secret-key';
+};
+
+const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const MAX_ATTEMPTS = 5;
+const DAILY_SEND_LIMIT = 10;
+
+function hashCode(email, code) {
+  return crypto.createHash('sha256').update(`${email}:${code}:${getPepper()}`).digest('hex');
+}
+
+function todayKey(email) {
+  const day = new Date().toISOString().slice(0, 10);
+  return `${email}_${day}`;
+}
+
 // ----------------------------------------------------------------------
-// 1. Send Phone OTP (Twilio Verify)
+// 1. Passwordless Email OTP: Send 6-Digit Code
+// ----------------------------------------------------------------------
+exports.sendEmailOtp = functions.https.onCall(async (data) => {
+  const email = String(data.email || '').trim().toLowerCase();
+  const fullName = String(data.fullName || '').trim().slice(0, 100);
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new functions.https.HttpsError('invalid-argument', 'Enter a valid email address.');
+  }
+
+  const sendgridKey = process.env.SENDGRID_API_KEY || functions.config()?.sendgrid?.key;
+  if (sendgridKey) {
+    sgMail.setApiKey(sendgridKey);
+  }
+
+  const db = admin.firestore();
+  const rateRef = db.doc(`email_otp_rate/${todayKey(email)}`);
+
+  // Enforce daily send limit per email inside a Firestore transaction
+  await db.runTransaction(async (tx) => {
+    const rateDoc = await tx.get(rateRef);
+    const count = rateDoc.exists ? rateDoc.data().count : 0;
+    if (count >= DAILY_SEND_LIMIT) {
+      throw new functions.https.HttpsError(
+        'resource-exhausted',
+        'Too many code requests today. Try again tomorrow.'
+      );
+    }
+    tx.set(rateRef, { count: count + 1 }, { merge: true });
+  });
+
+  const code = crypto.randomInt(100000, 999999).toString();
+  await db.doc(`email_otp/${email}`).set({
+    codeHash: hashCode(email, code),
+    pendingFullName: fullName || null,
+    expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + OTP_TTL_MS),
+    attempts: 0,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  if (sendgridKey) {
+    await sgMail.send({
+      to: email,
+      from: 'noreply@taskforge.app',
+      subject: `Your TaskForge sign-in code: ${code}`,
+      text: `Your sign-in code is ${code}. It expires in 10 minutes. If you didn't request this, ignore this email.`,
+    });
+  } else {
+    console.log(`[Dev] SendGrid key not configured. OTP code generated for ${email}.`);
+  }
+
+  return { sent: true };
+});
+
+// ----------------------------------------------------------------------
+// 2. Passwordless Email OTP: Verify Code & Return Custom Token
+// ----------------------------------------------------------------------
+exports.verifyEmailOtp = functions.https.onCall(async (data) => {
+  const email = String(data.email || '').trim().toLowerCase();
+  const code = String(data.code || '').trim();
+
+  if (!email || !code) {
+    throw new functions.https.HttpsError('invalid-argument', 'Email and code are required.');
+  }
+
+  const db = admin.firestore();
+  const otpRef = db.doc(`email_otp/${email}`);
+  const otpDoc = await otpRef.get();
+
+  if (!otpDoc.exists) {
+    throw new functions.https.HttpsError('invalid-argument', 'Request a new code.');
+  }
+
+  const otp = otpDoc.data();
+
+  if (otp.expiresAt.toMillis() < Date.now()) {
+    await otpRef.delete();
+    throw new functions.https.HttpsError('invalid-argument', 'Code expired. Request a new one.');
+  }
+
+  if (otp.attempts >= MAX_ATTEMPTS) {
+    await otpRef.delete();
+    throw new functions.https.HttpsError('resource-exhausted', 'Too many incorrect attempts. Request a new code.');
+  }
+
+  if (hashCode(email, code) !== otp.codeHash) {
+    await otpRef.update({ attempts: admin.firestore.FieldValue.increment(1) });
+    throw new functions.https.HttpsError('invalid-argument', 'Incorrect code.');
+  }
+
+  // Delete OTP document immediately upon successful verification (one-time use)
+  await otpRef.delete();
+
+  let userRecord;
+  try {
+    userRecord = await admin.auth().getUserByEmail(email);
+  } catch {
+    userRecord = await admin.auth().createUser({
+      email,
+      displayName: otp.pendingFullName || email.split('@')[0],
+      emailVerified: true,
+    });
+  }
+
+  await db.doc(`users/${userRecord.uid}`).set(
+    {
+      name: userRecord.displayName || otp.pendingFullName || email.split('@')[0],
+      email,
+      avatar_url: userRecord.photoURL || '',
+      phone_number: null,
+      phone_verified: false,
+      whatsapp_opt_in: false,
+      email_reminders_enabled: true,
+      theme: 'dark',
+      created_at: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+
+  const token = await admin.auth().createCustomToken(userRecord.uid);
+  return { token };
+});
+
+// ----------------------------------------------------------------------
+// 3. Send Phone OTP (Twilio Verify)
 // ----------------------------------------------------------------------
 exports.sendPhoneOtp = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -51,7 +193,7 @@ exports.sendPhoneOtp = functions.https.onCall(async (data, context) => {
 });
 
 // ----------------------------------------------------------------------
-// 2. Verify Phone OTP (Twilio Verify)
+// 4. Verify Phone OTP (Twilio Verify)
 // ----------------------------------------------------------------------
 exports.verifyPhoneOtp = functions.https.onCall(async (data, context) => {
   if (!context.auth) {
@@ -79,7 +221,6 @@ exports.verifyPhoneOtp = functions.https.onCall(async (data, context) => {
     const uid = context.auth.uid;
     const db = admin.firestore();
 
-    // Set phone verification status on user document
     await db.doc(`users/${uid}`).set(
       {
         phone_number: phone,
@@ -90,7 +231,6 @@ exports.verifyPhoneOtp = functions.https.onCall(async (data, context) => {
       { merge: true }
     );
 
-    // Write reverse lookup index for inbound STOP webhooks
     await db.doc(`phone_index/${phone}`).set({ uid });
 
     return { verified: true };
@@ -101,7 +241,7 @@ exports.verifyPhoneOtp = functions.https.onCall(async (data, context) => {
 });
 
 // ----------------------------------------------------------------------
-// 3. Send Scheduled Due Reminders (Runs every 10 minutes)
+// 5. Send Scheduled Due Reminders (Runs every 10 minutes)
 // ----------------------------------------------------------------------
 exports.sendDueReminders = functions.pubsub.schedule('every 10 minutes').onRun(async () => {
   const sendgridKey = process.env.SENDGRID_API_KEY || functions.config()?.sendgrid?.key;
@@ -132,9 +272,8 @@ exports.sendDueReminders = functions.pubsub.schedule('every 10 minutes').onRun(a
       if (!task.due_date) continue;
 
       const dueMillis = new Date(task.due_date).getTime();
-      if (dueMillis > windowEnd.toMillis()) continue; // Not due within 15 minutes yet
+      if (dueMillis > windowEnd.toMillis()) continue;
 
-      // Send Email Reminder
       if (user.email_reminders_enabled && user.email && sendgridKey) {
         try {
           await sgMail.send({
@@ -148,7 +287,6 @@ exports.sendDueReminders = functions.pubsub.schedule('every 10 minutes').onRun(a
         }
       }
 
-      // Send WhatsApp Reminder
       if (user.whatsapp_opt_in && user.phone_verified && user.phone_number && whatsappFrom) {
         try {
           await twilioClient.messages.create({
@@ -161,14 +299,13 @@ exports.sendDueReminders = functions.pubsub.schedule('every 10 minutes').onRun(a
         }
       }
 
-      // Mark reminder sent
       await taskDoc.ref.update({ reminder_sent: true });
     }
   }
 });
 
 // ----------------------------------------------------------------------
-// 4. Twilio Inbound Webhook ("STOP" Opt-Out)
+// 6. Twilio Inbound Webhook ("STOP" Opt-Out)
 // ----------------------------------------------------------------------
 exports.whatsappInbound = functions.https.onRequest(async (req, res) => {
   const from = (req.body.From || '').replace('whatsapp:', '').trim();

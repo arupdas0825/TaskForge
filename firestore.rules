@@ -11,8 +11,16 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Phone index collection — Admin SDK only (deny all browser requests)
+    // Server-only OTP & Index collections — Admin SDK only (deny all browser requests)
     match /phone_index/{phone} {
+      allow read, write: if false;
+    }
+
+    match /email_otp/{email} {
+      allow read, write: if false;
+    }
+
+    match /email_otp_rate/{rateKey} {
       allow read, write: if false;
     }
 

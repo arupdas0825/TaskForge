@@ -1,13 +1,8 @@
 import {
-  signInWithPopup,
   signOut as firebaseSignOut,
-  GoogleAuthProvider,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile as updateFirebaseProfile,
 } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { auth, db, googleProvider } from './firebase/config';
+import { auth, db } from './firebase/config';
 
 let googleAccessToken = null;
 
@@ -72,29 +67,6 @@ export async function ensureProfileForFirebaseUser(firebaseUser, extra = {}) {
       email_reminders_enabled: true,
     };
   }
-}
-
-export async function signUpWithEmail({ fullName, email, password }) {
-  const cred = await createUserWithEmailAndPassword(auth, email, password);
-  await updateFirebaseProfile(cred.user, { displayName: fullName });
-  const profile = await ensureProfileForFirebaseUser(cred.user, { name: fullName });
-  return { user: profile, firebaseUser: cred.user };
-}
-
-export async function signInWithEmail({ email, password }) {
-  const cred = await signInWithEmailAndPassword(auth, email, password);
-  const profile = await ensureProfileForFirebaseUser(cred.user);
-  return { user: profile, firebaseUser: cred.user };
-}
-
-export async function signInWithGoogle() {
-  const result = await signInWithPopup(auth, googleProvider);
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  if (credential?.accessToken) {
-    setGoogleAccessToken(credential.accessToken);
-  }
-  const profile = await ensureProfileForFirebaseUser(result.user);
-  return { user: profile, firebaseUser: result.user, accessToken: credential?.accessToken };
 }
 
 export async function getCurrentUser() {
