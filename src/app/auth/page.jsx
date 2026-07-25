@@ -11,6 +11,103 @@ import { Button } from '@/components/ui/button';
 import { ensureProfileForFirebaseUser } from '@/lib/auth';
 import { useAuthStore } from '@/stores/auth-store';
 
+function withTimeout(promise, ms, timeoutMessage) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMessage)), ms)),
+  ]);
+}
+
+export function GuestEntry() {
+  const [guestStep, setGuestStep] = useState('idle'); // 'idle' | 'name' | 'submitting'
+  const [guestName, setGuestName] = useState('');
+  const [guestError, setGuestError] = useState('');
+  const router = useRouter();
+
+  const handleGuestSubmit = async (e) => {
+    e.preventDefault();
+    setGuestError('');
+    setGuestStep('submitting');
+    try {
+      const cred = await withTimeout(
+        signInAnonymously(auth),
+        8000,
+        'Sign-in is taking too long. Check your connection and try again.'
+      );
+
+      // Navigate immediately — don't make the user wait on the profile write.
+      router.push('/dashboard');
+
+      // Profile doc write happens right after, doesn't block navigation.
+      setDoc(doc(db, 'users', cred.user.uid), {
+        name: guestName.trim() || 'Guest',
+        email: null,
+        isGuest: true,
+        phone_number: null,
+        phone_verified: false,
+        whatsapp_opt_in: false,
+        email_reminders_enabled: false,
+        theme: 'dark',
+        created_at: serverTimestamp(),
+      }).catch((err) => console.error('Guest profile write failed:', err));
+    } catch (err) {
+      console.error('Guest sign-in failed:', err);
+      setGuestError(
+        err.code === 'auth/admin-restricted-operation' || err.code === 'auth/operation-not-allowed'
+          ? 'Guest sign-in is temporarily unavailable. Please use email sign-in instead.'
+          : err.message || 'Something went wrong. Please try again.'
+      );
+      setGuestStep('name'); // back to the name step, not stuck
+    }
+  };
+
+  if (guestStep === 'idle') {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        className="w-full rounded-xl py-2.5 border-white/20 bg-white/5 text-white hover:bg-white/10"
+        onClick={() => setGuestStep('name')}
+      >
+        Continue as Guest
+      </Button>
+    );
+  }
+
+  return (
+    <form onSubmit={handleGuestSubmit} className="space-y-3">
+      {guestError && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-xs text-red-400 text-center">
+          {guestError}
+        </div>
+      )}
+      <input
+        autoFocus
+        type="text"
+        placeholder="Full name"
+        value={guestName}
+        onChange={(e) => setGuestName(e.target.value)}
+        className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary text-white"
+      />
+      <Button type="submit" className="w-full rounded-xl py-2.5" disabled={guestStep === 'submitting'}>
+        {guestStep === 'submitting' ? 'Starting...' : 'Start as Guest'}
+      </Button>
+      {guestStep !== 'submitting' && (
+        <button
+          type="button"
+          className="w-full text-xs text-gray-400 hover:text-white transition pt-1"
+          onClick={() => {
+            setGuestStep('idle');
+            setGuestError('');
+          }}
+        >
+          Cancel
+        </button>
+      )}
+    </form>
+  );
+}
+
 export default function AuthPage() {
   const [step, setStep] = useState('request'); // 'request' | 'verify'
   const [fullName, setFullName] = useState('');
@@ -18,7 +115,6 @@ export default function AuthPage() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isGuestSubmitting, setIsGuestSubmitting] = useState(false);
   const router = useRouter();
   const { setUser } = useAuthStore();
 
@@ -77,44 +173,6 @@ export default function AuthPage() {
     }
   };
 
-  const handleContinueAsGuest = async (e) => {
-    e.preventDefault();
-    setError('');
-    setIsGuestSubmitting(true);
-
-    try {
-      const cred = await signInAnonymously(auth);
-      const guestName = fullName.trim() || 'Guest';
-
-      const guestProfile = {
-        name: guestName,
-        email: null,
-        isGuest: true,
-        phone_number: null,
-        phone_verified: false,
-        whatsapp_opt_in: false,
-        email_reminders_enabled: false,
-        theme: 'dark',
-        created_at: serverTimestamp(),
-      };
-
-      await setDoc(doc(db, 'users', cred.user.uid), guestProfile, { merge: true });
-
-      setUser({
-        id: cred.user.uid,
-        uid: cred.user.uid,
-        ...guestProfile,
-      });
-
-      router.push('/dashboard');
-    } catch (err) {
-      console.error('Guest Sign-In Error:', err);
-      setError(err.message || 'Failed to sign in as guest.');
-    } finally {
-      setIsGuestSubmitting(false);
-    }
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-[#121212] relative overflow-hidden w-full">
       {/* Ambient background glow */}
@@ -159,7 +217,7 @@ export default function AuthPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-white/10 text-white placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               />
-              <Button type="submit" className="w-full rounded-xl py-2.5" disabled={isSubmitting || isGuestSubmitting}>
+              <Button type="submit" className="w-full rounded-xl py-2.5" disabled={isSubmitting}>
                 {isSubmitting ? 'Sending code...' : 'Send code'}
               </Button>
             </form>
@@ -173,15 +231,7 @@ export default function AuthPage() {
               </span>
             </div>
 
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleContinueAsGuest}
-              className="w-full rounded-xl py-2.5 border-white/20 bg-white/5 text-white hover:bg-white/10"
-              disabled={isSubmitting || isGuestSubmitting}
-            >
-              {isGuestSubmitting ? 'Signing in as guest...' : 'Continue as Guest'}
-            </Button>
+            <GuestEntry />
           </div>
         ) : (
           <form onSubmit={handleVerifyCode} className="space-y-3">
@@ -227,3 +277,4 @@ export default function AuthPage() {
     </div>
   );
 }
+
