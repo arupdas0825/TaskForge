@@ -15,7 +15,13 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { useTaskCompletionTrend, useTaskMetrics, useProjectAnalysis } from '@/hooks/useAnalytics';
+import {
+  useTaskCompletionTrend,
+  useTaskMetrics,
+  useProjectAnalysis,
+  useProductivityStats,
+} from '@/hooks/useAnalytics';
+import { Flame, Trophy, Clock, CheckCircle2 } from 'lucide-react';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
@@ -23,8 +29,9 @@ export function AnalyticsDashboard() {
   const { data: trend, isLoading: trendLoading } = useTaskCompletionTrend(30);
   const { data: metrics, isLoading: metricsLoading } = useTaskMetrics();
   const { data: projects, isLoading: projectsLoading } = useProjectAnalysis();
+  const { data: stats, isLoading: statsLoading } = useProductivityStats();
 
-  if (trendLoading || metricsLoading || projectsLoading) {
+  if (trendLoading || metricsLoading || projectsLoading || statsLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary"></div>
@@ -32,15 +39,82 @@ export function AnalyticsDashboard() {
     );
   }
 
-  const priorityData = metrics ? [
-    { name: 'Low', value: metrics.tasks_by_priority?.low || 0 },
-    { name: 'Medium', value: metrics.tasks_by_priority?.medium || 0 },
-    { name: 'High', value: metrics.tasks_by_priority?.high || 0 },
-    { name: 'Critical', value: metrics.tasks_by_priority?.critical || 0 },
-  ] : [];
+  const priorityData = metrics
+    ? [
+        { name: 'Low', value: metrics.tasks_by_priority?.low || 0 },
+        { name: 'Medium', value: metrics.tasks_by_priority?.medium || 0 },
+        { name: 'High', value: metrics.tasks_by_priority?.high || 0 },
+        { name: 'Critical', value: metrics.tasks_by_priority?.critical || 0 },
+      ]
+    : [];
 
   return (
     <div className="space-y-6">
+      {/* Productivity Score & Streak Overview */}
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card className="bg-gradient-to-br from-amber-500/10 via-card to-card border-amber-500/20">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Daily Streak</p>
+                  <p className="text-3xl font-extrabold mt-1 text-amber-500 flex items-center gap-1">
+                    <Flame className="h-7 w-7 fill-amber-500" />
+                    {stats.streak} {stats.streak === 1 ? 'day' : 'days'}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">Keep completing tasks daily to extend your streak!</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-blue-500/10 via-card to-card border-blue-500/20">
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Productivity Score</p>
+                  <p className="text-3xl font-extrabold mt-1 text-blue-500 flex items-center gap-1">
+                    <Trophy className="h-7 w-7" />
+                    {stats.productivity_score} / 100
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">Based on your weekly completed tasks vs. created tasks</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Completed This Week</p>
+                  <p className="text-3xl font-extrabold mt-1 text-green-500 flex items-center gap-1">
+                    <CheckCircle2 className="h-7 w-7" />
+                    {stats.tasks_completed_this_week}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">{stats.tasks_completed_this_month} completed this month</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Avg Completion Time</p>
+                  <p className="text-3xl font-extrabold mt-1 text-purple-500 flex items-center gap-1">
+                    <Clock className="h-7 w-7" />
+                    {stats.average_completion_time ? `${stats.average_completion_time}m` : 'N/A'}
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground mt-3">Average focus time recorded per task</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Completion Trend Chart */}
       <Card>
         <CardHeader>

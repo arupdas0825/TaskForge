@@ -75,6 +75,30 @@ export async function updateTask(id, updates) {
   }
 
   const updatedTask = await updateDocById('tasks', id, payload);
+
+  // Handle recurring task completion auto-generation
+  if (updates.status === 'completed' && existingTask.status !== 'completed' && existingTask.is_recurring) {
+    const baseDueDate = existingTask.due_date ? new Date(existingTask.due_date) : new Date();
+    let nextDueDate = new Date(baseDueDate);
+
+    if (existingTask.recurrence_pattern === 'weekly') {
+      nextDueDate.setDate(nextDueDate.getDate() + 7);
+    } else if (existingTask.recurrence_pattern === 'monthly') {
+      nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+    } else {
+      // Default daily
+      nextDueDate.setDate(nextDueDate.getDate() + 1);
+    }
+
+    const { id: _, created_at, updated_at, ...taskData } = existingTask;
+    await createTask({
+      ...taskData,
+      status: 'todo',
+      due_date: nextDueDate.toISOString(),
+      reminder_sent: false,
+    });
+  }
+
   return updatedTask;
 }
 

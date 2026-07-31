@@ -6,7 +6,7 @@ import { ProgressBar } from '@/components/dashboard/progress-bar';
 import { TaskQuickAdd } from '@/components/dashboard/task-quick-add';
 import { useTasks } from '@/hooks/useTasks';
 import { useAuthStore } from '@/stores/auth-store';
-import { CheckCircle2, Clock, AlertCircle, TrendingUp } from 'lucide-react';
+import { CheckCircle2, Clock, AlertCircle, TrendingUp, Calendar as CalendarIcon } from 'lucide-react';
 
 export function DashboardContent() {
   const { user } = useAuthStore();
@@ -19,7 +19,11 @@ export function DashboardContent() {
   ).length;
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  const todayTasks = tasks.filter((t) => t.status !== 'archived');
+  const activeTasks = tasks.filter((t) => t.status !== 'archived');
+  const upcomingTasks = tasks
+    .filter((t) => t.due_date && t.status !== 'completed' && new Date(t.due_date) >= new Date())
+    .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
+    .slice(0, 4);
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -100,18 +104,18 @@ export function DashboardContent() {
           <Card>
             <CardHeader>
               <CardTitle>Recent Tasks</CardTitle>
-              <CardDescription>{todayTasks.length} tasks total</CardDescription>
+              <CardDescription>{activeTasks.length} active tasks total</CardDescription>
             </CardHeader>
             <CardContent>
               {isLoading ? (
                 <p className="text-muted-foreground text-sm py-4">Loading tasks...</p>
-              ) : todayTasks.length === 0 ? (
+              ) : activeTasks.length === 0 ? (
                 <p className="text-muted-foreground text-sm py-4">
                   No tasks available. Add one above to get started!
                 </p>
               ) : (
                 <div className="space-y-3">
-                  {todayTasks.slice(0, 6).map((task) => {
+                  {activeTasks.slice(0, 6).map((task) => {
                     const isDone = task.status === 'completed';
                     return (
                       <div
@@ -152,8 +156,8 @@ export function DashboardContent() {
           </Card>
         </div>
 
-        {/* Progress */}
-        <div>
+        {/* Side Panel: Progress & Upcoming Due Dates */}
+        <div className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>Progress</CardTitle>
@@ -177,6 +181,29 @@ export function DashboardContent() {
                   <span className="font-medium">{totalTasks - completedTasks}</span>
                 </div>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <CalendarIcon size={18} className="text-primary" />
+                Upcoming Due Dates
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {upcomingTasks.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-2">No upcoming due tasks scheduled.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {upcomingTasks.map((t) => (
+                    <div key={t.id} className="flex justify-between items-center text-xs p-2 rounded-md bg-muted/40">
+                      <span className="font-medium truncate max-w-[150px]">{t.title}</span>
+                      <span className="text-muted-foreground">{new Date(t.due_date).toLocaleDateString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

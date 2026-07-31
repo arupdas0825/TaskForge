@@ -9,6 +9,8 @@ import {
   Calendar,
   CheckSquare,
   BarChart3,
+  Folder,
+  Tag,
   Settings,
   LogOut,
   Menu,
@@ -24,6 +26,8 @@ import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 const navItems = [
   { icon: LayoutGrid, label: 'Dashboard', href: '/dashboard' },
   { icon: CheckSquare, label: 'Tasks', href: '/dashboard/tasks' },
+  { icon: Folder, label: 'Projects', href: '/dashboard/projects' },
+  { icon: Tag, label: 'Labels', href: '/dashboard/labels' },
   { icon: Calendar, label: 'Calendar', href: '/dashboard/calendar' },
   { icon: BarChart3, label: 'Analytics', href: '/dashboard/analytics' },
   { icon: Settings, label: 'Settings', href: '/dashboard/settings' },
@@ -42,18 +46,25 @@ export function Sidebar() {
     router.push('/auth');
   };
 
+  const handleNavigate = (href) => {
+    setIsOpen(false);
+    router.push(href);
+  };
+
   return (
     <>
       {/* Mobile Menu Button */}
       <button
+        type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg hover:bg-muted bg-card border border-border"
+        className="md:hidden fixed top-4 left-4 z-50 p-2 rounded-lg hover:bg-muted bg-card border border-border text-foreground shadow-md"
+        aria-label="Toggle Navigation Menu"
       >
         {isOpen ? <X size={20} /> : <Menu size={20} />}
       </button>
 
       {/* Desktop Sidebar */}
-      <div className="hidden md:flex w-64 h-screen border-r border-border bg-card flex-col sticky top-0">
+      <aside className="hidden md:flex w-64 h-screen border-r border-border bg-card flex-col sticky top-0 z-30 shrink-0">
         {/* Logo */}
         <div className="p-6 border-b border-border">
           <Link href="/dashboard" className="flex items-center gap-3">
@@ -121,37 +132,41 @@ export function Sidebar() {
             <span>Logout</span>
           </Button>
         </div>
-      </div>
+      </aside>
 
       {/* Mobile Drawer */}
       {isOpen && (
-        <div className="md:hidden fixed inset-0 z-40 flex">
-          <div className="fixed inset-0 bg-black/50" onClick={() => setIsOpen(false)} />
-          <div className="relative w-64 max-w-xs bg-card h-full flex flex-col z-50 p-4 border-r border-border">
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsOpen(false)} />
+          <div className="relative w-64 max-w-xs bg-card h-full flex flex-col z-50 p-4 border-r border-border shadow-xl">
             <div className="p-4 border-b border-border mb-4">
-              <Link href="/dashboard" className="flex items-center gap-3" onClick={() => setIsOpen(false)}>
+              <button
+                type="button"
+                className="flex items-center gap-3 text-left w-full"
+                onClick={() => handleNavigate('/dashboard')}
+              >
                 <img src="/logo.png" alt="TaskForge Logo" className="w-8 h-8 object-contain rounded-lg shadow-sm" />
                 <span className="font-bold text-lg tracking-tight">TaskForge</span>
-              </Link>
+              </button>
             </div>
             <nav className="flex-1 space-y-1 overflow-y-auto">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
                 return (
-                  <Link
+                  <button
                     key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    type="button"
+                    onClick={() => handleNavigate(item.href)}
+                    className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors text-left ${
                       isActive
                         ? 'bg-primary text-primary-foreground font-semibold'
                         : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                     }`}
-                    onClick={() => setIsOpen(false)}
                   >
                     <Icon size={18} />
                     <span>{item.label}</span>
-                  </Link>
+                  </button>
                 );
               })}
 

@@ -6,11 +6,14 @@ A cloud-backed task management platform built with Next.js 15, React 19, Firebas
 
 - 🔐 **Forced Google Sign-In**: Authenticate securely using Google OAuth via Firebase Auth.
 - ☁️ **Cloud Firestore Data Scoping**: All user tasks, projects, labels, and profile settings are stored securely in Firestore, scoped per user (`/users/{uid}/...`).
+- 📁 **Projects & Labels Management**: Create, edit, and color-tag projects (`/users/{uid}/projects`) and custom labels (`/users/{uid}/labels`), with task assignment and multi-attribute filtering.
+- 🔄 **Recurring Tasks**: Automatic next-instance scheduling upon task completion (daily, weekly, monthly).
+- ⚡ **Bulk Actions & Multi-Select**: Multi-select task management allowing one-click bulk completion and bulk deletion.
 - 📱 **WhatsApp & Email Reminders**: Scheduled reminders delivered automatically via Cloud Functions, Twilio (WhatsApp), and SendGrid.
 - 🔒 **Phone Number Verification**: Mandatory E.164 OTP verification via Twilio Verify before activating WhatsApp notifications.
 - ⛔ **WhatsApp Opt-Out Support**: Inbound webhook support handling "STOP" messages from users to instantly opt-out.
 - 📅 **Google Calendar & Tasks Sync**: Auto-sync scheduled tasks into the user's primary Google Calendar and Google Tasks.
-- 📊 **Productivity Analytics & Insights**: Real-time metrics, completion trends, and priority breakdowns.
+- 📊 **Productivity Analytics & Insights**: Real-time metrics, completion trends, priority breakdowns, daily streak score, and focus time calculations.
 - 🎨 **Modern Dark/Light Themes**: Dynamic dark glassmorphism aesthetic built with Tailwind CSS and Framer Motion.
 
 ## Tech Stack

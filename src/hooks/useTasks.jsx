@@ -26,10 +26,14 @@ export function useTasks() {
       queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['productivity-stats'] });
       queryClient.invalidateQueries({ queryKey: ['task-metrics'] });
-      toast.success('Task created successfully');
+      if (typeof window !== 'undefined' && !navigator.onLine) {
+        toast.info('Task saved offline. Will sync when reconnected.');
+      } else {
+        toast.success('Task created successfully');
+      }
     },
     onError: (err) => {
-      if (err.code === 'VERIFICATION_REQUIRED') return; // Handled by verification modal
+      if (err.code === 'VERIFICATION_REQUIRED') return;
       toast.error(`Failed to create task: ${err.message || err}`);
     },
   });
@@ -40,7 +44,11 @@ export function useTasks() {
       queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['productivity-stats'] });
       queryClient.invalidateQueries({ queryKey: ['task-metrics'] });
-      toast.success('Task updated');
+      if (typeof window !== 'undefined' && !navigator.onLine) {
+        toast.info('Task updated offline. Will sync when reconnected.');
+      } else {
+        toast.success('Task updated');
+      }
     },
     onError: (err) => {
       toast.error(`Failed to update task: ${err.message || err}`);
@@ -53,7 +61,11 @@ export function useTasks() {
       queryClient.invalidateQueries({ queryKey: TASKS_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ['productivity-stats'] });
       queryClient.invalidateQueries({ queryKey: ['task-metrics'] });
-      toast.success('Task deleted');
+      if (typeof window !== 'undefined' && !navigator.onLine) {
+        toast.info('Task deleted offline. Will sync when reconnected.');
+      } else {
+        toast.success('Task deleted');
+      }
     },
     onError: (err) => {
       toast.error(`Failed to delete task: ${err.message || err}`);
